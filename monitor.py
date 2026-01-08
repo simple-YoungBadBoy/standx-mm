@@ -393,9 +393,19 @@ if __name__ == "__main__":
     if args.extra_configs:
         config_paths.extend(args.extra_configs)
     
+    # Auto-detect config files if none specified
     if not config_paths:
-        print("Usage: python monitor.py config1.yaml config2.yaml ...")
-        print("   or: python monitor.py -c config1.yaml -c config2.yaml")
-        exit(1)
+        import glob
+        all_yamls = glob.glob("*.yaml") + glob.glob("*.yml")
+        # Exclude example config
+        config_paths = [f for f in all_yamls if not f.startswith("config.example")]
+        
+        if config_paths:
+            print(f"Auto-detected config files: {config_paths}")
+        else:
+            print("No config files found.")
+            print("Usage: python monitor.py config1.yaml config2.yaml ...")
+            print("   or: python monitor.py -c config1.yaml -c config2.yaml")
+            exit(1)
     
     asyncio.run(main(config_paths))
