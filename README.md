@@ -1,6 +1,17 @@
 # StandX Maker Bot
 
-双边挂单做市机器人，基于价格推送自动管理买卖挂单。
+StandX Maker Points 活动的双边挂单做市机器人。在 mark price 两侧挂限价单获取积分，价格靠近时自动撤单避免成交。
+
+**作者**: [@frozenraspberry](https://x.com/frozenraspberry)
+
+## 策略原理
+
+StandX 的 Maker Points 活动奖励挂单行为：订单在盘口停留超过 3 秒即可获得积分，无需成交。本机器人通过：
+
+1. 在 mark price 两侧按配置距离挂买卖单
+2. 实时监控价格，价格靠近时撤单避免成交
+3. 价格远离时重新挂单到更优位置
+4. 高波动时暂停挂单，等待市场稳定
 
 ## 功能特性
 
@@ -34,14 +45,14 @@ wallet:
 
 symbol: BTC-USD
 
-# 挂单参数
-order_distance_bps: 10 # 挂单距离 last_price 的 bps
-cancel_distance_bps: 5 # 价格靠近到这个距离时撤单（避免成交）
-rebalance_distance_bps: 20 # 价格远离超过这个距离时撤单（重新挂更优价格）
+# 挂单参数（bps = 0.01%，即 10 bps = 0.1%）
+order_distance_bps: 20 # 挂单距离 mark_price 的 bps
+cancel_distance_bps: 10 # 价格靠近到这个距离时撤单（避免成交）
+rebalance_distance_bps: 30 # 价格远离超过这个距离时撤单（重新挂更优价格）
 order_size_btc: 0.01 # 单笔挂单大小
 
 # 仓位控制
-max_position_btc: 0.1 # 最大持仓，超过停止做市
+max_position_btc: 0.1 # 最大持仓（绝对值），超过停止做市
 
 # 波动率控制
 volatility_window_sec: 5 # 观察窗口秒数
@@ -62,21 +73,26 @@ python main.py
 python main.py --config my_config.yaml
 ```
 
-## 监控脚本
+## 日志文件
 
-`monitor.py` 用于监控多个账户状态，支持余额告警和持仓告警。
+程序运行时会生成以下日志文件（已在 `.gitignore` 中排除）：
+
+| 文件                   | 说明                                           |
+| ---------------------- | ---------------------------------------------- |
+| `latency_<config>.log` | API 调用延迟记录，格式：`时间戳,接口,延迟毫秒` |
+| `status.log`           | 监控脚本的账户状态快照                         |
+
+## 其他工具
+
+### 监控脚本
+
+`monitor.py` 用于监控多个账户状态，支持余额告警和持仓告警。独立于做市机器人运行。
 
 ```bash
-# 监控多个账户
 python monitor.py config.yaml config-bot2.yaml config-bot3.yaml
-
-# 或使用 -c 参数
-python monitor.py -c config.yaml -c config-bot2.yaml
 ```
 
-### 通知服务配置
-
-监控脚本支持通过 Telegram 发送告警通知。需要部署通知服务并配置环境变量：
+通知服务配置：
 
 1. 部署通知服务：https://github.com/frozen-cherry/tg-notify
 2. 设置环境变量：
@@ -86,33 +102,43 @@ export NOTIFY_URL="http://your-server:8000/notify"
 export NOTIFY_API_KEY="your-api-key"
 ```
 
-Windows PowerShell:
-
-```powershell
-$env:NOTIFY_URL = "http://your-server:8000/notify"
-$env:NOTIFY_API_KEY = "your-api-key"
-```
-
-## 延迟测试
-
-`test_latency.py` 用于测试 API 调用延迟：
+### 延迟测试
 
 ```bash
 python test_latency.py
 ```
 
-## 其他脚本
+### 状态查询
 
-- `query_status.py`: 查询账户状态（余额、持仓、积分等）
+```bash
+python query_status.py
+```
 
 ## 注意事项
 
 1. **私钥安全**：`config.yaml` 包含钱包私钥，请勿提交到公开仓库
-2. **网络延迟**：建议在靠近交易所服务器的地区运行（如新加坡）
+2. **网络延迟**：建议在延迟较低的服务器上运行,可通过 `test_latency.py` 测试
 3. **做市风险**：做市策略有持仓风险，请谨慎设置 `max_position_btc`
 4. **撤单策略**：程序退出时会自动撤销所有挂单
-5. **邀请码说明**：本脚本默认使用作者的邀请码，您会获得 **5% boost**，作者也会获得推荐奖励。感谢您的支持！
 
-## License
+## 风险提示
 
-MIT
+- 本策略仅供学习和研究使用
+- 加密货币交易存在高风险，可能导致资金损失
+- 使用前请充分了解策略逻辑和风险
+- 建议先以少量资金测试
+- **作者不对使用本策略造成的任何损失负责**
+
+## 邀请码
+
+本脚本默认使用作者的邀请码，您会获得 **5% 积分加成**，作者也会获得推荐奖励。感谢支持！
+
+## 许可证
+
+MIT License
+
+使用本项目时请标明作者 Twitter: [@frozenraspberry](https://x.com/frozenraspberry)
+
+---
+
+免责声明：本软件仅供学习和研究使用。使用本软件进行交易的所有风险由使用者自行承担。作者不对任何交易损失负责。
