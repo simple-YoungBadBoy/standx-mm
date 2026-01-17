@@ -7,6 +7,7 @@ Event-driven design:
 import uuid
 import logging
 import asyncio
+import time
 from typing import Optional
 
 import requests
@@ -58,6 +59,7 @@ class Maker:
         self._running = False
         self._pending_check = asyncio.Event()
         self._reduce_log_file = None  # Will be set by main.py
+        self._last_force_flat_check = 0.0
     
     async def initialize(self):
         """Initialize state from exchange."""
@@ -135,6 +137,11 @@ class Maker:
     
     async def _tick(self):
         """Single iteration of the maker logic."""
+        # Step 0: Periodic safety check to cancel orders and flatten position if needed
+        forced = await self._force_flat_if_position()
+        if forced:
+            return
+
         # Wait for price data
         if self.state.last_price is None:
             logger.debug("Waiting for price data...")
@@ -359,3 +366,85 @@ class Maker:
             logger.error(f"Failed to check/reduce position: {e}")
             return False
 
+    async def _force_flat_if_position(self) -> bool:
+        """Cancel all open orders and close any open position on a timer."""
+        interval = max(0, int(self.config.force_flat_check_sec))
+        if interval == 0:
+            return False
+
+        now = time.monotonic()
+        if now - self._last_force_flat_check < interval:
+            return False
+        self._last_force_flat_check = now
+
+        try:
+            positions = await self.client.query_positions(self.config.symbol)
+        except Exception as e:
+            logger.error(f"Failed to query positions for force-flat: {e}")
+            return False
+
+        pos_qty = positions[0].qty if positions else 0.0
+        self.state.update_position(pos_qty)
+
+        if abs(pos_qty) <= 0:
+            return False
+
+        logger.warning(f"Force-flat triggered: position={pos_qty:+.4f}")
+
+        # Cancel all open orders on this symbol
+        try:
+            open_orders = await self.client.query_open_orders(self.config.symbol)
+            cl_ord_ids = [order.cl_ord_id for order in open_orders]
+            if cl_ord_ids:
+                logger.info(f"Force-flat: cancelling {len(cl_ord_ids)} orders")
+                await self.client.cancel_orders(cl_ord_ids)
+            self.state.clear_all_orders()
+        except Exception as e:
+            logger.error(f"Force-flat cancel orders failed: {e}")
+            send_notify(
+                "StandX 撤单失败",
+                f"{self.config.symbol} 强制平仓前撤单失败: {e}",
+                priority="high"
+            )
+
+        # Close position with reduce-only market order
+        close_side = "sell" if pos_qty > 0 else "buy"
+        close_qty = abs(pos_qty)
+        if close_qty <= 0:
+            return False
+
+        cl_ord_id = f"flat-{uuid.uuid4().hex[:8]}"
+        qty_str = f"{close_qty:.3f}"
+        try:
+            response = await self.client.new_order(
+                symbol=self.config.symbol,
+                side=close_side,
+                qty=qty_str,
+                price="0",
+                cl_ord_id=cl_ord_id,
+                order_type="market",
+                reduce_only=True,
+            )
+            if response.get("code") == 0 or "id" in response:
+                logger.info(f"Force-flat order placed: {cl_ord_id} qty={qty_str} side={close_side}")
+                send_notify(
+                    "仓位强制平仓",
+                    f"{self.config.symbol} 强制平仓 {close_qty:.4f} ({close_side})",
+                    priority="high"
+                )
+                return True
+            logger.error(f"Force-flat order failed: {response}")
+            send_notify(
+                "StandX 强制平仓失败",
+                f"{self.config.symbol} 强制平仓失败: {response}",
+                priority="high"
+            )
+        except Exception as e:
+            logger.error(f"Force-flat order exception: {e}")
+            send_notify(
+                "StandX 强制平仓异常",
+                f"{self.config.symbol} 强制平仓异常: {e}",
+                priority="high"
+            )
+
+        return False

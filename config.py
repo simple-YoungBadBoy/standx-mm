@@ -21,6 +21,7 @@ class Config:
     max_position_btc: float
     volatility_window_sec: int
     volatility_threshold_bps: int
+    force_flat_check_sec: int
     
     @classmethod
     def from_dict(cls, data: dict) -> "Config":
@@ -34,6 +35,7 @@ class Config:
             max_position_btc=data["max_position_btc"],
             volatility_window_sec=data["volatility_window_sec"],
             volatility_threshold_bps=data["volatility_threshold_bps"],
+            force_flat_check_sec=data.get("force_flat_check_sec", 5),
         )
 
 
